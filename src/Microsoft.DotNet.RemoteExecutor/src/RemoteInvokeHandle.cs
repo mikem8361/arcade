@@ -175,12 +175,11 @@ namespace Microsoft.DotNet.RemoteExecutor
                                     description.AppendLine($"\tTotalProcessorTime: {Process.TotalProcessorTime}");
 
                                     // Attach ClrMD to gather some additional details.
-                                    if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && // As of Microsoft.Diagnostics.Runtime v1.0.5, process attach only works on Windows.
-                                        Interlocked.CompareExchange(ref s_clrMdLock, 1, 0) == 0) // Make sure we only attach to one process at a time.
+                                    if (Interlocked.CompareExchange(ref s_clrMdLock, 1, 0) == 0) // Make sure we only attach to one process at a time.
                                     {
                                         try
                                         {
-                                            using (DataTarget dt = DataTarget.AttachToProcess(Process.Id, msecTimeout: 20_000)) // arbitrary timeout
+                                            using (DataTarget dt = DataTarget.AttachToProcess(Process.Id, suspend: true))
                                             {
                                                 ClrRuntime runtime = dt.ClrVersions.FirstOrDefault()?.CreateRuntime();
                                                 if (runtime != null)
@@ -189,23 +188,14 @@ namespace Microsoft.DotNet.RemoteExecutor
                                                     description.AppendLine("\tThreads:");
                                                     foreach (ClrThread thread in runtime.Threads.Where(t => t.IsAlive))
                                                     {
-                                                        string threadKind =
-                                                            thread.IsThreadpoolCompletionPort ? "[Thread pool completion port]" :
-                                                            thread.IsThreadpoolGate ? "[Thread pool gate]" :
-                                                            thread.IsThreadpoolTimer ? "[Thread pool timer]" :
-                                                            thread.IsThreadpoolWait ? "[Thread pool wait]" :
-                                                            thread.IsThreadpoolWorker ? "[Thread pool worker]" :
-                                                            thread.IsFinalizer ? "[Finalizer]" :
-                                                            thread.IsGC ? "[GC]" :
-                                                            "";
-
+                                                        string threadKind = thread.IsFinalizer ? "[Finalizer]" : "";
                                                         string isBackground = thread.IsBackground ? "[Background]" : "";
                                                         string apartmentModel = thread.IsMTA ? "[MTA]" :
                                                                                 thread.IsSTA ? "[STA]" :
                                                                                 "";
 
                                                         description.AppendLine($"\t\tThread #{thread.ManagedThreadId} (OS 0x{thread.OSThreadId:X}) {threadKind} {isBackground} {apartmentModel}");
-                                                        foreach (ClrStackFrame frame in thread.StackTrace)
+                                                        foreach (ClrStackFrame frame in thread.EnumerateStackTrace())
                                                         {
                                                             description.AppendLine($"\t\t\t{frame}");
                                                         }
